@@ -9,6 +9,44 @@ of a less permissive license, this package is not included as a dependency. If
 you have this package installed, then ANSI codes will be converted to HTML in
 your report.
 
+Split reports
+-------------
+
+You can generate separate HTML reports per outcome using the ``--split-reports`` CLI option
+or the ``split_reports`` INI option.
+
+.. code-block:: bash
+
+   $ pytest --html=report.html --split-reports=failed
+
+This generates ``report.html`` with all results and a ``report_failed.html``
+containing only the failed tests. Each comma-separated entry becomes its own report:
+
+.. code-block:: bash
+
+   $ pytest --html=report.html --split-reports=passed,failed
+
+Use ``+`` to bundle outcomes into a single report. For example, to get one report
+with everything that went wrong - failed tests as well as setup, teardown and
+collection errors:
+
+.. code-block:: bash
+
+   $ pytest --html=report.html --split-reports=failed+error,passed
+
+Use ``all`` to generate a report for every outcome type:
+
+.. code-block:: bash
+
+   $ pytest --html=report.html --split-reports=all
+
+Using a configuration file:
+
+.. code-block:: ini
+
+   [pytest]
+   split_reports = failed
+
 Report streaming
 ----------------
 

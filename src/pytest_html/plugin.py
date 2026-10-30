@@ -48,6 +48,14 @@ def pytest_addoption(parser):
         default=[],
         help="append given css file content to report style file.",
     )
+    group.addoption(
+        "--split-reports",
+        action="store",
+        default=None,
+        metavar="groups",
+        help="comma-separated reports to generate, each one bundling '+'-joined outcomes "
+        "(e.g., 'failed' or 'passed,failed+error'). Use 'all' to generate a report per outcome type.",
+    )
     parser.addini(
         "render_collapsed",
         type="string",
@@ -79,6 +87,51 @@ def pytest_addoption(parser):
         help="the HTML report will be generated after each test "
         "instead of at the end of the run.",
     )
+    parser.addini(
+        "split_reports",
+        type="string",
+        default=None,
+        help="comma-separated reports to generate, each one bundling '+'-joined outcomes. "
+        "Use 'all' for a report per outcome type.",
+    )
+
+
+VALID_SPLIT_OUTCOMES = ["passed", "failed", "skipped", "xfailed", "xpassed", "error", "rerun"]
+
+
+def _get_split_reports(config):
+    split_reports_cli = config.getoption("split_reports")
+    split_reports_ini = config.getini("split_reports")
+
+    if split_reports_cli:
+        raw = split_reports_cli
+    elif split_reports_ini:
+        raw = split_reports_ini
+    else:
+        return None
+
+    groups = []
+    for entry in raw.split(","):
+        tokens = [s.strip().lower() for s in entry.split("+") if s.strip()]
+        unknown = [t for t in tokens if t not in VALID_SPLIT_OUTCOMES and t != "all"]
+        for token in unknown:
+            warnings.warn(
+                f"Unknown outcome '{token}' in split_reports. "
+                f"Valid outcomes: {', '.join(sorted(VALID_SPLIT_OUTCOMES))} or 'all'.",
+                UserWarning,
+            )
+        tokens = [t for t in tokens if t not in unknown]
+        if "all" in tokens:
+            if len(tokens) > 1:
+                warnings.warn(
+                    "'all' cannot be combined with other outcomes in a group; ignoring the others.",
+                    UserWarning,
+                )
+            groups.extend((outcome,) for outcome in VALID_SPLIT_OUTCOMES)
+        elif tokens:
+            groups.append(tuple(sorted(set(tokens))))
+
+    return list(dict.fromkeys(groups))
 
 
 def pytest_configure(config):
@@ -107,12 +160,15 @@ def pytest_configure(config):
             template = _read_template([resources_path])
             processed_css = _process_css(default_css, extra_css)
             report_data = ReportData(config)
+
+            split_reports = _get_split_reports(config)
+
             if config.getoption("self_contained_html"):
                 html = SelfContainedReport(
-                    html_path, config, report_data, template, processed_css
+                    html_path, config, report_data, template, processed_css, split_reports
                 )
             else:
-                html = Report(html_path, config, report_data, template, processed_css)
+                html = Report(html_path, config, report_data, template, processed_css, split_reports)
 
             config.pluginmanager.register(html)
 

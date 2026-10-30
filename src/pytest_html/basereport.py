@@ -1,6 +1,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+import copy
 import datetime
 import json
 import math
@@ -13,13 +14,12 @@ from html import escape
 from pathlib import Path
 
 import pytest
-
 from pytest_html import __version__
 from pytest_html import extras
 
 
 class BaseReport:
-    def __init__(self, report_path, config, report_data, template, css):
+    def __init__(self, report_path, config, report_data, template, css, split_reports=None, is_self_contained=False):
         self._report_path = (
             Path.cwd() / Path(os.path.expandvars(report_path)).expanduser()
         )
@@ -35,6 +35,67 @@ class BaseReport:
         self._report = report_data
         self._report.title = self._report_path.name
         self._suite_start_time = time.time()
+        self._split_reports = split_reports or []
+        self._is_self_contained = is_self_contained
+
+    def _filter_tests_by_group(self, group):
+        filtered_tests = defaultdict(list)
+        for nodeid, tests in self._report.data["tests"].items():
+            for test_data in tests:
+                if test_data.get("result", "").lower() in group:
+                    filtered_tests[nodeid].append(test_data)
+        return filtered_tests
+
+    def _get_split_report_path(self, group):
+        base_name = self._report_path.stem
+        suffix = self._report_path.suffix or ".html"
+        return self._report_path.with_name(
+            f"{base_name}_{'_'.join(group)}{suffix}"
+        )
+
+    def _generate_filtered_report(self, group):
+        split_path = self._get_split_report_path(group)
+
+        filtered_tests = self._filter_tests_by_group(group)
+
+        if not filtered_tests:
+            if split_path.exists():
+                split_path.unlink()
+            return
+
+        filtered_data = dict(self._report.data)
+        filtered_data["tests"] = filtered_tests
+
+        filtered_test_data = json.dumps(filtered_data)
+
+        filtered_outcomes = copy.deepcopy(self._report.outcomes)
+        for outcome_type in filtered_outcomes:
+            filtered_outcomes[outcome_type]["value"] = 0
+        counts = defaultdict(int)
+        for tests in filtered_tests.values():
+            for test_data in tests:
+                counts[test_data.get("result", "").lower()] += 1
+        for outcome in set(counts) & set(filtered_outcomes):
+            filtered_outcomes[outcome]["value"] = counts[outcome]
+
+        generated = datetime.datetime.now()
+        rendered_report = self._template.render(
+            title=self._report.title,
+            date=generated.strftime("%d-%b-%Y"),
+            time=generated.strftime("%H:%M:%S"),
+            version=__version__,
+            styles=self.css,
+            run_count=self._run_count(filtered_outcomes),
+            running_state=self._report.running_state,
+            self_contained=self._is_self_contained,
+            outcomes=filtered_outcomes,
+            test_data=filtered_test_data,
+            table_head=self._report.table_header,
+            additional_summary=self._report.additional_summary,
+        )
+
+        with split_path.open("w", encoding="utf-8") as f:
+            f.write(rendered_report)
 
     @property
     def css(self):
@@ -140,12 +201,13 @@ class BaseReport:
         with self._report_path.open("w", encoding="utf-8") as f:
             f.write(rendered_report)
 
-    def _run_count(self):
+    def _run_count(self, outcomes=None):
         relevant_outcomes = ["passed", "failed", "xpassed", "xfailed"]
         counts = 0
-        for outcome in self._report.outcomes.keys():
+        outcomes = outcomes or self._report.outcomes
+        for outcome in outcomes.keys():
             if outcome in relevant_outcomes:
-                counts += self._report.outcomes[outcome]["value"]
+                counts += outcomes[outcome]["value"]
 
         plural = counts > 1
         duration = _format_duration(self._report.total_duration)
@@ -190,6 +252,11 @@ class BaseReport:
         suite_stop_time = time.time()
         self._report.total_duration = suite_stop_time - self._suite_start_time
         self._generate_report()
+        self._generate_split_reports()
+
+    def _generate_split_reports(self):
+        for group in self._split_reports:
+            self._generate_filtered_report(group)
 
     @pytest.hookimpl(trylast=True)
     def pytest_terminal_summary(self, terminalreporter):
@@ -197,6 +264,13 @@ class BaseReport:
             "-",
             f"Generated html report: {self._report_path.as_uri()}",
         )
+        for group in self._split_reports:
+            split_path = self._get_split_report_path(group)
+            if split_path.exists():
+                terminalreporter.write_sep(
+                    "-",
+                    f"Generated html report ({'_'.join(group)}): {split_path.as_uri()}",
+                )
 
     @pytest.hookimpl(trylast=True)
     def pytest_collectreport(self, report):
@@ -258,6 +332,7 @@ class BaseReport:
 
         if self._config.getini("generate_report_on_test"):
             self._generate_report()
+            self._generate_split_reports()
 
     def _process_report(self, report, duration, processed_extras):
         outcome = _process_outcome(report)

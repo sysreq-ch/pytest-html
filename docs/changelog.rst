@@ -6,6 +6,20 @@ Versions follow `Semantic Versioning`_ (``<major>.<minor>.<patch>``).
 Version History
 ---------------
 
+4.2.0 (2026-07-24)
+~~~~~~~~~~~~~~~~~~
+
+* Add ``--split-reports`` CLI option and ``split_reports`` INI option
+  to generate separate HTML reports per outcome (e.g. ``--split-reports=failed``).
+  Entries are comma-separated; bundle outcomes into one report with ``+``
+  (e.g. ``--split-reports=failed+error``).
+
+* Fix outcome counts in filtered reports being shared with the main report.
+
+* Fix substring matching incorrectly matching ``xpassed`` when filtering for ``passed``.
+
+* Fix terminal summary not listing generated split report paths.
+
 4.1.1 (2023-11-07)
 ~~~~~~~~~~~~~~~~~~
 

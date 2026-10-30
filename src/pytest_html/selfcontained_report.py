@@ -9,8 +9,11 @@ from pytest_html.basereport import BaseReport
 
 
 class SelfContainedReport(BaseReport):
-    def __init__(self, report_path, config, report_data, template, css):
-        super().__init__(report_path, config, report_data, template, css)
+    def __init__(self, report_path, config, report_data, template, css, split_reports=None):
+        super().__init__(
+            report_path, config, report_data, template, css, split_reports,
+            is_self_contained=True,
+        )
 
     @property
     def css(self):
